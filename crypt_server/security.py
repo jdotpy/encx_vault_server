@@ -1,4 +1,4 @@
-from Crypto.Cipher import PKCS1_OAEP, AES
+from Crypto.Cipher import PKCS1_OAEP, AES as AESImpl
 from Crypto.PublicKey import RSA as RSAImpl
 from Crypto.Hash import SHA512
 from Crypto import Random
@@ -10,16 +10,15 @@ import stat
 from uuid import uuid4
 
 
-def load_rsa_key(path):
+def load_rsa_key(path, passphrase=None):
     f = open(path, 'r')
     key_contents = f.read()
-    key = RSA.importKey(key_contents)
-    return key
+    return RSA({}, key_contents, passphrase)
 
 def generate_uuid():
     return str(uuid4())
 
-def hash(data):
+def hasher(data):
     if isinstance(data, str):
         data = data.encode('utf-8')
     h = SHA512.new()
@@ -42,6 +41,7 @@ def from_b64_str(string, encoding='utf-8'):
     return base64.b64decode(string.encode(encoding))
 
 class AES():
+    name = 'AES'
     default_key_size = 16 # In bytes; so 16 is a 128-bit key
 
     @classmethod
@@ -49,7 +49,7 @@ class AES():
         if key_size is None:
             key_size = cls.default_key_size
         key = generate_random_bytes(key_size)
-        return base64.b64encode(key)
+        return to_b64_str(key)
 
     def __init__(self, metadata, key=None):
         self.metadata = metadata
@@ -67,19 +67,21 @@ class AES():
         return to_b64_str(self.key)
 
     def encrypt(self, payload):
-        iv = generate_random_bytes(AES.block_size)
+        iv = generate_random_bytes(AESImpl.block_size)
         self.metadata['scheme'] = self.name
         self.metadata['iv'] = to_b64_str(iv)
         self.metadata['mode'] = 'CFB'
-        self.cipher = AES.new(self.key, AES.MODE_CFB, iv)
+        self.cipher = AESImpl.new(self.key, AESImpl.MODE_CFB, iv)
         ciphertext = self.cipher.encrypt(payload.read())
-        return io.BytesIO(ciphertext)
+        return ciphertext
 
     def decrypt(self, ciphertext):
+        if not isinstance(ciphertext, bytes):
+            ciphertext = ciphertext.read()
         iv = from_b64_str(self.metadata['iv'])
-        self.cipher = AES.new(self.key, AES.MODE_CFB, iv)
-        payload = self.cipher.decrypt(iv + ciphertext.read())
-        payload = payload[AES.block_size:]
+        self.cipher = AESImpl.new(self.key, AESImpl.MODE_CFB, iv)
+        payload = self.cipher.decrypt(iv + ciphertext)
+        payload = payload[AESImpl.block_size:]
         return io.BytesIO(payload)
 
 class RSA():
@@ -87,9 +89,9 @@ class RSA():
     cipher_name = 'PKCS#1 v1.5 OAEP'
     default_key_size = 2048
 
-    def __init__(self, metadata, key=None):
+    def __init__(self, metadata, key=None, passphrase=None):
         self.metadata = metadata
-        self._set_key(key)
+        self._set_key(key, passphrase=passphrase)
         self.cipher = PKCS1_OAEP.new(self.key)
 
     @classmethod
@@ -98,7 +100,7 @@ class RSA():
             size = cls.default_key_size
         new_key = RSAImpl.generate(size)
         exported_obj = new_key.exportKey("PEM")
-        return io.BytesIO(exported_obj)
+        return exported_obj
 
     def get_key(self, passphrase=None):
         exported_key = self.key.exportKey("PEM", passphrase=passphrase).decode('utf-8')
@@ -109,11 +111,12 @@ class RSA():
         exported_key = public_key.exportKey("PEM").decode('utf-8')
         return exported_key
 
-    def _set_key(self, key):
-        key_bytes = key.read()
-        self.key = RSAImpl.importKey(key_bytes)
+    def _set_key(self, key, passphrase=None):
+        self.key = RSAImpl.importKey(key, passphrase=passphrase)
 
     def encrypt(self, payload):
+        if isinstance(payload, str):
+            payload = payload.encode('utf-8')
         self.payload = self.cipher.encrypt(payload)
         self.metadata['scheme'] = self.name
         self.metadata['cipher'] = self.cipher_name

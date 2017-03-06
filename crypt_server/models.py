@@ -16,14 +16,14 @@ class User(db.Document):
         return self.token
 
 class Document(db.Document):
+    path = db.StringField(primary_key=True, max_length=200)
     encrypted_data = db.BinaryField()
     metadata = db.DictField()
     key_fingerprint = db.StringField()
     data_fingerprint = db.StringField()
-    path = db.StringField(max_length=200)
     created = db.DateTimeField(default=datetime.now)
 
-class Sanctions(db.Document):
+class Sanction(db.Document):
     user = db.ReferenceField('User')
     document = db.ReferenceField('Document')
     encrypted_key = db.StringField()

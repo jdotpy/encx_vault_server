@@ -1,6 +1,6 @@
 from . import models
-from .http import json_response
-from crypt_server.security import RSA
+from .http import json_response, binary_response
+from crypt_server.security import AES, RSA, hasher, to_b64_str, from_b64_str
 
 from flask import request
 
@@ -30,15 +30,69 @@ def user_init():
         'private_key': private_key,
     })
 
+def query():
+    results = models.Document.objects.all()
+    documents = []
+    for result in results:
+        documents.append({
+            'path': result.path,
+        })
+    return json_response({
+        'documents': documents
+    })
 
 def new():
     file_obj = request.files.get('file', None)
     path = request.form.get('path', None)
 
-    print('New Key:\n', private_key)
-    print('Got file:', path, len(file_obj.read()))
+    payload = file_obj.read()
+    file_obj.seek(0)
+    new_key = AES.generate_key()
+    raw_aes_key = from_b64_str(new_key)
+    encryption_metadata = {}
+    aes = AES(encryption_metadata, key=new_key)
+    encrypted_payload = aes.encrypt(file_obj)
+
+    # Save encrypted data
+    doc = models.Document(
+        path=path,
+        encrypted_data=encrypted_payload,
+        key_fingerprint=hasher(new_key),
+        data_fingerprint=hasher(payload),
+        metadata=encryption_metadata,
+    )
+    doc.save()
+
+    # Encrypt key with public key of all sanctioned users
+    sanctioned_users = [request.user]
+    for user in sanctioned_users:
+        rsa = RSA({}, key=user.public_key)
+        encrypted_key = rsa.encrypt(raw_aes_key)
+        encrypted_key = to_b64_str(encrypted_key)
+        models.Sanction(
+            document=doc,
+            user=user,
+            encrypted_key=encrypted_key,
+        ).save()
+
 
     return json_response({
         'success': True,
         'path': path
     })
+
+def read():
+    path = request.args.get('path', None)
+    doc = models.Document.objects.get(path=path)
+    sanction = models.Sanction.objects.get(document=doc, user=request.user)
+    return json_response({
+        'path': path,
+        'metadata': doc.metadata,
+        'encrypted_key': sanction.encrypted_key,
+    })
+
+def read_data():
+    path = request.args.get('path', None)
+    doc = models.Document.objects.get(path=path)
+    sanction = models.Sanction.objects.get(document=doc, user=request.user)
+    return binary_response(doc.encrypted_data)

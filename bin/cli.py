@@ -3,7 +3,7 @@ from getpass import getpass
 import requests
 import argparse
 
-from crypt_server.security import load_rsa_key, write_private_path, make_private_dir
+from crypt_server.security import RSA, AES, load_rsa_key, write_private_path, make_private_dir, from_b64_str, to_b64_str
 import shutil
 import json
 import os
@@ -28,11 +28,13 @@ class CryptClient():
     @property
     def key(self):
         if not hasattr(self, '_key'):
+            passphrase = getpass('Enter passphrase for key {}: '.format(self.key_path))
             try:
-                self._key = load_rsa_key(self.key_path)
+                self._key = load_rsa_key(self.key_path, passphrase=passphrase)
             except Exception as e:
                 print('Could not load key at path:', self.key_path)
                 raise e
+        return self._key
 
     def _request(self, method, path, **params):
         return self.session.request(method, self.host + path, **params)
@@ -41,10 +43,17 @@ class CryptClient():
         return self._request('POST', '/init-user', data={'passphrase': key_passphrase}).json()
 
     def query(self, search):
-        return self._request('GET', '/search')
+        return self._request('GET', '/query').json()
 
-    def get(self, path, extract=None):
-        return self._request('POST', '/read')
+    def read(self, path, extract=None):
+        metadata = self._request('GET', '/document', params={'path': path}).json()
+        encrypted_payload = self._request('GET', '/document/data', params={'path': path}).content
+
+        encrypted_key = from_b64_str(metadata['encrypted_key'])
+        key = self.key.decrypt(encrypted_key)
+        aes = AES(metadata['metadata'], to_b64_str(key))
+        payload = aes.decrypt(encrypted_payload).read()
+        return payload
 
     def new(self, path, file_obj):
         return self._request('POST', '/new', files={'file': file_obj}, data={'path': path}).json()
@@ -62,6 +71,17 @@ def cmd_add(client, args):
 
 def cmd_query(client, args):
     print(client.query(args.search_text))
+
+def cmd_read(client, args):
+    payload = client.read(args.path)
+    try:
+        payload = payload.decode('utf-8')
+    except ValueError:
+        pass
+    print(payload)
+
+
+
 
 def cmd_init(client, args):
     host = 'http://localhost:5000' #input('Enter url of crypt server (e.g. https://crypt-server.google.com): ')
@@ -95,14 +115,15 @@ def cmd_init(client, args):
             os.rm(crypt_dir)
 
     print('Creating new configuration files...')
+    config_file_path = os.path.join(crypt_dir, DEFAULT_CONFIG_PATH)
+    key_file_path = os.path.join(crypt_dir, DEFAULT_KEY_PATH)
     new_configuration = {
         'host': client.host,
         'user': client.user,
         'token': response['token'],
+        'key_path': key_file_path,
     }
     make_private_dir(crypt_dir)
-    config_file_path = os.path.join(crypt_dir, DEFAULT_CONFIG_PATH)
-    key_file_path = os.path.join(crypt_dir, DEFAULT_KEY_PATH)
     print('\tWriting conf file...')
     write_private_path(config_file_path, json.dumps(new_configuration, indent=4))
     print('\t...done.')
@@ -129,6 +150,10 @@ def build_cli_parser():
     # Query files
     parser_query = subparsers.add_parser('query', help='Query the files in the crypt')
     parser_query.add_argument('search_text', help='Text filter')
+
+    # Read file
+    parser_read = subparsers.add_parser('read', help='Read a file from crypt')
+    parser_read.add_argument('path', help='Path of document to read')
     return parser
 
 
@@ -136,6 +161,7 @@ CMDS = {
     'init': cmd_init,
     'add': cmd_add,
     'query': cmd_query,
+    'read': cmd_read,
 }
 
 if __name__ == '__main__':
@@ -150,7 +176,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     func = CMDS.get(args.cmd)
-    print('Executing', args.cmd)
+    print(' == Executing', args.cmd, ' == ')
     try:
         func(client, args)
     except KeyboardInterrupt as e:

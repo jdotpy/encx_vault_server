@@ -20,7 +20,6 @@ auth_failed = json_response({
 def auth():
     user_name = request.headers.get('X-CRYPT-USER', None)
     token = request.headers.get('X-CRYPT-TOKEN', None)
-    print('Got username:', user_name, 'token:', token)
     if not token or not user_name:
         return not_authed
     try:
