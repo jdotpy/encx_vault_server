@@ -6,8 +6,15 @@ from Crypto import Random
 import base64
 import io
 import os
+import stat
 from uuid import uuid4
 
+
+def load_rsa_key(path):
+    f = open(path, 'r')
+    key_contents = f.read()
+    key = RSA.importKey(key_contents)
+    return key
 
 def generate_uuid():
     return str(uuid4())
@@ -93,8 +100,8 @@ class RSA():
         exported_obj = new_key.exportKey("PEM")
         return io.BytesIO(exported_obj)
 
-    def get_key(self):
-        exported_key = self.key.exportKey("PEM").decode('utf-8')
+    def get_key(self, passphrase=None):
+        exported_key = self.key.exportKey("PEM", passphrase=passphrase).decode('utf-8')
         return exported_key
 
     def get_public_key(self, with_labels=False):
@@ -114,3 +121,29 @@ class RSA():
 
     def decrypt(self, ciphertext):
         return self.cipher.decrypt(ciphertext)
+
+PRIVATE_FILE_MODE = stat.S_IRUSR | stat.S_IWUSR  # This is 0o600 in octal
+PRIVATE_DIR_MODE = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR  # This is 0o700 in octal
+
+def make_private_dir(path):
+    os.makedirs(path, mode=PRIVATE_DIR_MODE, exist_ok=False)
+
+def write_private_path(path, contents):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL  # Refer to "man 2 open".
+
+    # For security, remove file with potentially elevated mode
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+    # Open file descriptor
+    umask_original = os.umask(0)
+    try:
+        descriptor = os.open(path, flags, PRIVATE_FILE_MODE)
+    finally:
+        os.umask(umask_original)
+
+    # Open file handle and write to file
+    with os.fdopen(descriptor, 'w') as file_writer:
+        file_writer.write(contents)
