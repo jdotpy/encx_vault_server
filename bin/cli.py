@@ -17,7 +17,6 @@ import os
 DEFAULT_CRYPT_DIR = '~/.crypt'
 DEFAULT_CONFIG_PATH = 'config.json'
 DEFAULT_KEY_PATH = 'key.pem'
-CLI_CONFIG_PATHS = [os.path.join(DEFAULT_CRYPT_DIR, DEFAULT_CONFIG_PATH)]
 
 class CryptClient():
     def __init__(self, host, user, token, key_path=None):
@@ -44,10 +43,20 @@ class CryptClient():
 
     def _request(self, method, path, **params):
         try:
-            return self.session.request(method, self.host + path, **params)
+            response = self.session.request(method, self.host + path, **params)
         except Exception as e:
-            print('Error Communicating with server! {}'.format(str(e)))
+            print('Error! Communication with server failed! {}'.format(str(e)))
             sys.exit(1)
+        try:
+            data = response.json()
+        except ValueError as e:
+            print('Error! Unable to parse response from server! {}'.format(str(e)))
+            sys.exit(1)
+
+        if str(response.status_code).startswith('4'):
+            print('Your bad... {}'.format(data['message']))
+            sys.exit(1)
+
 
     def init_user(self, key_passphrase):
         return self._request('POST', '/init-user', data={'passphrase': key_passphrase}).json()
@@ -163,6 +172,9 @@ def build_cli_parser():
     parser = argparse.ArgumentParser(prog='crypt-cli')
     subparsers = parser.add_subparsers(help='sub-command help', dest='cmd')
 
+    # Global Options
+    parser.add_argument('-c', '--config')
+
     # Initialize user
     parser_init = subparsers.add_parser('init', help='Initialize a user')
     parser_init.add_argument('-s', '--server')
@@ -180,6 +192,12 @@ def build_cli_parser():
     # Read file
     parser_read = subparsers.add_parser('read', help='Read a file from crypt')
     parser_read.add_argument('path', help='Path of document to read')
+
+    # Sanction user for doc
+    parser_sanction = subparsers.add_parser('sanction', help='Give a user access to document')
+    parser_sanction.add_argument('path', help='Path of document to grant')
+    parser_sanction.add_argument('user', help='Which user to grant access')
+    parser_sanction.add_argument('role', help='Role to give user ("owner", "admin", "editor", "viewer")')
     return parser
 
 
@@ -191,13 +209,6 @@ CMDS = {
 }
 
 def main():
-    config = Configuration(*CLI_CONFIG_PATHS)
-    client = CryptClient(
-        config.get('host', 'http://localhost:5000'),
-        config.get('user'),
-        config.get('token'),
-        config.get('key_path'),
-    )
     parser = build_cli_parser()
     args = parser.parse_args()
 
@@ -206,6 +217,21 @@ def main():
         return False
 
     func = CMDS.get(args.cmd)
+
+    config = None
+    client = None
+    if func != 'init':
+        if args.config:
+            config_path = args.config
+        else:
+            config_path = os.path.join(DEFAULT_CRYPT_DIR, DEFAULT_CONFIG_PATH)
+        config = Configuration(config_path)
+        client = CryptClient(
+            config.get('host', 'http://localhost:5000'),
+            config.get('user'),
+            config.get('token'),
+            config.get('key_path'),
+        )
     try:
         func(client, args)
     except KeyboardInterrupt as e:

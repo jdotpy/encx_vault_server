@@ -49,8 +49,8 @@ def query(request):
 def new(request):
     if request.method != 'POST':
         return JsonResponse({
-            success: False,
-            message: 'You must POST to this endpoint',
+            'success': False,
+            'message': 'You must POST to this endpoint',
         }, status=405)
 
     file_obj = request.FILES.get('file', None)
@@ -58,14 +58,20 @@ def new(request):
 
     if not file_obj:
         return JsonResponse({
-            success: False,
-            message: 'Invalid file upload',
+            'success': False,
+            'message': 'Invalid file upload',
         }, status=400)
     if not path:
         return JsonResponse({
-            success: False,
-            message: 'Invalid file path',
+            'success': False,
+            'message': 'Invalid file path',
         }, status=400)
+    if models.Document.objects.filter(path=path).exists():
+        return JsonResponse({
+            'success': False,
+            'message': 'Document already exists',
+        }, status=400)
+
 
 
     payload = file_obj.read()
