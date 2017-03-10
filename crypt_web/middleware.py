@@ -1,34 +1,24 @@
 from flask import request
-from .http import json_response
+
 from .models import User
+from .utils import NOT_AUTHED, FORBIDDEN, AUTH_FAILED
 
-not_authed = json_response({
-    'success': False,
-    'message': 'Not Authenticated',
-}, code=401)
+def make_crypt_auth_middleware(get_response):
+    def crypt_auth_middleware(request):
+        user_name = request.META.get('HTTP_X_CRYPT_USER', None)
+        token = request.META.get('HTTP_X_CRYPT_TOKEN', None)
+        if not token or not user_name:
+            return NOT_AUTHED
 
-forbidden = json_response({
-    'success': False,
-    'message': 'You are not authorized to do this operation.',
-}, code=403)
+        try:
+            user = User.objects.get(user_name=user_name)
+        except User.DoesNotExist as e:
+            user = None
+            return AUTH_FAILED
 
-auth_failed = json_response({
-    'success': False,
-    'message': 'You are not authorized to do this operation.',
-}, code=403)
+        if not user.check_token(token):
+           return AUTH_FAILED
 
-def auth():
-    user_name = request.headers.get('X-CRYPT-USER', None)
-    token = request.headers.get('X-CRYPT-TOKEN', None)
-    if not token or not user_name:
-        return not_authed
-    try:
-        user = User.objects.get(user_name=user_name)
-    except Exception as e:
-        user = None
-        return auth_failed
-
-    if user.token != token:
-        return auth_failed
-
-    request.user = user
+        request.user = user
+        return get_response(request)
+    return crypt_auth_middleware

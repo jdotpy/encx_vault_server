@@ -2,3 +2,4 @@
 *.swp
 .py-env
 .env
+env.sh

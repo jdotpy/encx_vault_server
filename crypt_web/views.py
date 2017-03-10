@@ -1,23 +1,24 @@
+from django.http import JsonResponse, FileResponse
+from crypt_core.security import AES, RSA, hasher, to_b64_str, from_b64_str
+
 from . import models
-from .http import json_response, binary_response
-from crypt_server.security import AES, RSA, hasher, to_b64_str, from_b64_str
 
-from flask import request
+import io
 
-def home():
+def home(request):
     return 'Crypt Server'
 
-def add_user():
+def add_user(request):
+    pass
 
-
-def user_init():
+def user_init(request):
     if request.user.initialized:
-        return json_response({
+        return JsonResponse({
             'success': False,
             'message': 'A User cannot be re-initialized',
         }, code=403)
 
-    passphrase = request.form.get('passphrase', None)
+    passphrase = request.POST.get('passphrase', None)
 
     key = RSA({}, RSA.generate_key())
     private_key = key.get_key(passphrase=passphrase)
@@ -26,30 +27,46 @@ def user_init():
     new_token = request.user.regen_token()
     request.user.initialized = True
     request.user.save()
-    return json_response({
+    return JsonResponse({
         'success': True,
         'token': new_token,
         'public_key': public_key,
         'private_key': private_key,
     })
 
-def query():
-    search_term = request.args.get('q', None)
-    results = models.Document.objects.filter().fields()
+def query(request):
+    search_term = request.GET.get('q', None)
+    results = models.Document.objects.filter().only('path', 'created')
     if search_term:
         results = results.filter(path={'$regex': search_term})
+    results = results.order_by('path')
     documents = []
-    for result in results:
-        documents.append({
-            'path': result.path,
-        })
-    return json_response({
+    documents = list(map(models.Document.struct, results))
+    return JsonResponse({
         'documents': documents
     })
 
-def new():
-    file_obj = request.files.get('file', None)
-    path = request.form.get('path', None)
+def new(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            success: False,
+            message: 'You must POST to this endpoint',
+        }, status=405)
+
+    file_obj = request.FILES.get('file', None)
+    path = request.POST.get('path', None)
+
+    if not file_obj:
+        return JsonResponse({
+            success: False,
+            message: 'Invalid file upload',
+        }, status=400)
+    if not path:
+        return JsonResponse({
+            success: False,
+            message: 'Invalid file path',
+        }, status=400)
+
 
     payload = file_obj.read()
     file_obj.seek(0)
@@ -66,6 +83,7 @@ def new():
         key_fingerprint=hasher(new_key),
         data_fingerprint=hasher(payload),
         metadata=encryption_metadata,
+        creator=request.user,
     )
     doc.save()
 
@@ -82,23 +100,24 @@ def new():
         ).save()
 
 
-    return json_response({
+    return JsonResponse({
         'success': True,
         'path': path
     })
 
-def read():
-    path = request.args.get('path', None)
+def read(request):
+    path = request.GET.get('path', None)
     doc = models.Document.objects.get(path=path)
     sanction = models.Sanction.objects.get(document=doc, user=request.user)
-    return json_response({
+    return JsonResponse({
         'path': path,
         'metadata': doc.metadata,
         'encrypted_key': sanction.encrypted_key,
     })
 
-def read_data():
-    path = request.args.get('path', None)
+def read_data(request):
+    path = request.GET.get('path', None)
     doc = models.Document.objects.get(path=path)
     sanction = models.Sanction.objects.get(document=doc, user=request.user)
-    return binary_response(doc.encrypted_data)
+    return FileResponse(io.BytesIO(doc.encrypted_data))
+

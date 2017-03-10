@@ -5,9 +5,13 @@ from getpass import getpass
 import requests
 import argparse
 
-from crypt_server.security import RSA, AES, load_rsa_key, write_private_path, make_private_dir, from_b64_str, to_b64_str
+from crypt_core.security import (
+    RSA, AES, load_rsa_key, write_private_path,
+    make_private_dir, from_b64_str, to_b64_str
+)
 import shutil
 import json
+import sys
 import os
 
 DEFAULT_CRYPT_DIR = '~/.crypt'
@@ -39,7 +43,11 @@ class CryptClient():
         return self._key
 
     def _request(self, method, path, **params):
-        return self.session.request(method, self.host + path, **params)
+        try:
+            return self.session.request(method, self.host + path, **params)
+        except Exception as e:
+            print('Error Communicating with server! {}'.format(str(e)))
+            sys.exit(1)
 
     def init_user(self, key_passphrase):
         return self._request('POST', '/init-user', data={'passphrase': key_passphrase}).json()
@@ -73,8 +81,17 @@ def cmd_add(client, args):
 
 def cmd_query(client, args):
     results = client.query(args.search_term)
+    if not results:
+        print('No results found!')
+        return False
+
+    print('{:<45} | {:<19} | {}'.format('Document', 'Last Modified', 'Version ID'))
     for result in results['documents']:
-        print(result['path'])
+        print('{:<45} | {:<19} | {}'.format(
+            result['path'][:40],
+            result['created'][:19],
+            result['id'],
+        ))
 
 def cmd_read(client, args):
     payload = client.read(args.path)
@@ -93,8 +110,8 @@ def cmd_destroy(client, args):
     print(payload)
 
 def cmd_init(client, args):
-    host = 'http://localhost:5000' #input('Enter url of crypt server (e.g. https://crypt-server.google.com): ')
-    username = 'kj' #input('Enter user name: ')
+    host = input('Enter url of crypt server (e.g. https://crypt-server.google.com): ')
+    username = input('Enter user name: ')
     token = getpass('Enter user token received during account creation: ')
     key_password = 'foobar' #getpass('Enter a password for your crypt key: ')
     print('Initializing your account....')
