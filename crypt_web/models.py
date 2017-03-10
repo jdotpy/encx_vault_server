@@ -23,6 +23,14 @@ class Document(db.Document):
     data_fingerprint = db.StringField()
     created = db.DateTimeField(default=datetime.now)
 
+    def struct(self):
+        return {
+            'path': self.path,
+            'metadata': self.metadata,
+            'data_fingerprint': self.data_fingerprint,
+            'created': str(self.created),
+        }
+
 class Sanction(db.Document):
     user = db.ReferenceField('User')
     document = db.ReferenceField('Document')

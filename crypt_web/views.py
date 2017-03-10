@@ -7,6 +7,9 @@ from flask import request
 def home():
     return 'Crypt Server'
 
+def add_user():
+
+
 def user_init():
     if request.user.initialized:
         return json_response({
@@ -31,7 +34,10 @@ def user_init():
     })
 
 def query():
-    results = models.Document.objects.all()
+    search_term = request.args.get('q', None)
+    results = models.Document.objects.filter().fields()
+    if search_term:
+        results = results.filter(path={'$regex': search_term})
     documents = []
     for result in results:
         documents.append({

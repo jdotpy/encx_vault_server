@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from quickconfig import Configuration
 from getpass import getpass
 import requests
@@ -42,8 +44,8 @@ class CryptClient():
     def init_user(self, key_passphrase):
         return self._request('POST', '/init-user', data={'passphrase': key_passphrase}).json()
 
-    def query(self, search):
-        return self._request('GET', '/query').json()
+    def query(self, search=None):
+        return self._request('GET', '/query', params={'q': search}).json()
 
     def read(self, path, extract=None):
         metadata = self._request('GET', '/document', params={'path': path}).json()
@@ -70,7 +72,9 @@ def cmd_add(client, args):
     print(client.new(args.path, body))
 
 def cmd_query(client, args):
-    print(client.query(args.search_text))
+    results = client.query(args.search_term)
+    for result in results['documents']:
+        print(result['path'])
 
 def cmd_read(client, args):
     payload = client.read(args.path)
@@ -80,8 +84,13 @@ def cmd_read(client, args):
         pass
     print(payload)
 
-
-
+def cmd_destroy(client, args):
+    payload = client.read(args.path)
+    try:
+        payload = payload.decode('utf-8')
+    except ValueError:
+        pass
+    print(payload)
 
 def cmd_init(client, args):
     host = 'http://localhost:5000' #input('Enter url of crypt server (e.g. https://crypt-server.google.com): ')
@@ -149,7 +158,7 @@ def build_cli_parser():
 
     # Query files
     parser_query = subparsers.add_parser('query', help='Query the files in the crypt')
-    parser_query.add_argument('search_text', help='Text filter')
+    parser_query.add_argument('search_term', help='Text filter', nargs='?', default=None)
 
     # Read file
     parser_read = subparsers.add_parser('read', help='Read a file from crypt')
@@ -164,7 +173,7 @@ CMDS = {
     'read': cmd_read,
 }
 
-if __name__ == '__main__':
+def main():
     config = Configuration(*CLI_CONFIG_PATHS)
     client = CryptClient(
         config.get('host', 'http://localhost:5000'),
@@ -175,9 +184,15 @@ if __name__ == '__main__':
     parser = build_cli_parser()
     args = parser.parse_args()
 
+    if not args.cmd:
+        parser.print_help()
+        return False
+
     func = CMDS.get(args.cmd)
-    print(' == Executing', args.cmd, ' == ')
     try:
         func(client, args)
     except KeyboardInterrupt as e:
         print('stopping')
+
+if __name__ == '__main__':
+    main()
