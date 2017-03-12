@@ -1,8 +1,9 @@
 from django.http import JsonResponse, FileResponse
 
-from crypt_core.security import AES, RSA, hasher, to_b64_str, from_b64_str
 from .utils  import FORBIDDEN
 from . import models
+
+from crypt_core.security import generate_uuid, AES, RSA, hasher, to_b64_str, from_b64_str
 
 import io
 
@@ -36,6 +37,25 @@ def user_init(request):
         'private_key': private_key,
     })
 
+def audit_log(request):
+    user = request.GET.get('user', None)
+    doc_path = request.GET.get('path', None)
+
+    if not request.user.can('query', models.Audit):
+        return FORBIDDEN
+
+    results = models.Audit.objects.all()
+    if user:
+        results = results.filter(user_name=user)
+    if doc_path:
+        results = results.filter(document_path=doc_path)
+
+    log = list(map(models.Audit.struct, results))
+    return JsonResponse({
+        'log': log
+    })
+
+    
 def doc_query(request):
     if not request.user.can('query', models.Document):
         return FORBIDDEN
@@ -78,7 +98,7 @@ def doc_new(request):
             'message': 'Document already exists',
         }, status=400)
 
-    models.Document.objects.new(path, file_obj.read(), users)
+    doc = models.Document.objects.new(request.user, path, file_obj.read())
 
     doc.audit(request.user, models.Audit.ACTION_CREATE)
 

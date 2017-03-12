@@ -4,9 +4,10 @@ from django.conf import settings
 from datetime import datetime
 from django.db import models
 
-from crypt_core.security import generate_uuid
+from crypt_core.security import generate_uuid, AES, RSA, hasher, to_b64_str, from_b64_str
 
 import uuid
+import io
 
 
 class Team(models.Model):
@@ -45,6 +46,8 @@ class User(models.Model):
 
         if action == 'query':
             if obj == Document:
+                return True
+            elif obj == Audit:
                 return True
 
         elif action == 'read':
@@ -91,10 +94,10 @@ class DocumentManager(models.Manager):
         raw_aes_key = from_b64_str(new_key)
         encryption_metadata = {}
         aes = AES(encryption_metadata, key=new_key)
-        encrypted_payload = aes.encrypt(io.BytesIO(file_obj))
+        encrypted_payload = aes.encrypt(io.BytesIO(payload))
 
         # Save encrypted data
-        doc = models.Document(
+        doc = Document(
             path=path,
             encrypted_data=encrypted_payload,
             key_fingerprint=hasher(new_key),
@@ -231,5 +234,14 @@ class Audit(models.Model):
     user_name = models.CharField(max_length=100)
     document_path = models.CharField(max_length=200)
     document_version = models.UUIDField()
-    action = models.CharField(max_length=100)
+    action = models.CharField(max_length=100, choices=AUDIT_ACTIONS)
     timestamp = models.DateTimeField(auto_now_add=True)
+
+    def struct(self):
+        return {
+            'timestamp': str(self.timestamp),
+            'action': self.get_action_display(),
+            'user_name': self.user_name,
+            'document_path': self.document_path,
+            'document_version': self.document_version,
+        }

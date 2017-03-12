@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     url(r'^$', views.home),
     url(r'^users/init$', views.user_init),
+    url(r'^audit/log$', views.audit_log),
     url(r'^docs/query$', views.doc_query),
     url(r'^docs/new$', views.doc_new),
     url(r'^doc/meta$', views.doc_read_meta),
