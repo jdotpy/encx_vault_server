@@ -12,5 +12,5 @@ FORBIDDEN = JsonResponse({
 
 AUTH_FAILED = JsonResponse({
     'success': False,
-    'message': 'You are not authorized to do this operation.',
+    'message': 'Bad Credentials',
 }, status=403)

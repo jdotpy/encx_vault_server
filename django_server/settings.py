@@ -100,3 +100,4 @@ STATIC_URL = '/static/'
 ### Crypt-specific settings
 CRYPT_EVERYONE_CREATES = True
 CRYPT_ADMINS_DECRYPT = True
+CRYPT_ENABLE_AUDIT = True

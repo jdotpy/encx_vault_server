@@ -31,6 +31,11 @@ class User(models.Model):
     def __str__(self):
         return self.user_name
 
+    def get_fingerprint(self):
+        ## I'd like a more standardized fingerprinting format/source
+        ## This should prove unique though
+        return hasher(self.public_key)
+
     def regen_token(self):
         token = generate_uuid()
         self.token = make_password(token)
@@ -38,6 +43,11 @@ class User(models.Model):
 
     def check_token(self, token):
         return check_password(token, self.token)
+
+    def encrypt(self, raw_payload):
+        rsa = RSA({}, key=self.public_key)
+        encrypted_payload = rsa.encrypt(raw_payload)
+        return encrypted_payload
 
     def can(self, action, obj=None):
         # All Admins can do everything right now
@@ -85,11 +95,7 @@ class User(models.Model):
         return False
 
 class DocumentManager(models.Manager):
-    def new(self, creator, path, payload):
-        users = [creator]
-        if getattr(settings, 'CRYPT_ADMINS_DECRYPT', True):
-            users.extend(User.objects.filter(is_admin=True))
-
+    def new(self, creator, path, payload, previous=None):
         new_key = AES.generate_key()
         raw_aes_key = from_b64_str(new_key)
         encryption_metadata = {}
@@ -108,16 +114,7 @@ class DocumentManager(models.Manager):
         doc.save()
 
         # Encrypt key with public key of all sanctioned users
-        for user in users:
-            rsa = RSA({}, key=user.public_key)
-            encrypted_key = rsa.encrypt(raw_aes_key)
-            encrypted_key = to_b64_str(encrypted_key)
-            Sanction.objects.create(
-                document=doc,
-                user=user,
-                role=Sanction.ROLE_OWNER,
-                encrypted_key=encrypted_key,
-            )
+        Sanction.objects.create_for_doc(doc, raw_aes_key, previous=previous)
         return doc
 
     def latest_versions(self, for_user=None):
@@ -133,6 +130,12 @@ class DocumentManager(models.Manager):
             return qs
         return qs.filter(sanction__user=for_user)
 
+    def sanctions_for_update(self):
+        """
+            One might think this function would just copy the sanctions over
+            but we also need to take into account the fact that admin users 
+            may have changed.
+        """
 
 class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -169,12 +172,13 @@ class Document(models.Model):
         }
 
     def audit(self, user, action):
-        Audit.objects.create(
-            user_name=user.user_name,
-            document_path=self.path,
-            document_version=self.id,
-            action=action,
-        )
+        if getattr(settings, 'CRYPT_ENABLE_AUDIT', False):
+            Audit.objects.create(
+                user_name=user.user_name,
+                document_path=self.path,
+                document_version=self.id,
+                action=action,
+            )
 
 class Membership(models.Model):
     MEMBERSHIP_ROLES = (
@@ -186,6 +190,37 @@ class Membership(models.Model):
     user = models.ForeignKey(User)
     team = models.ForeignKey(Team)
     role = models.CharField(max_length=20, choices=MEMBERSHIP_ROLES)
+
+class SanctionManager(models.Manager):
+    def create_for_doc(self, doc, key, previous=None):
+        """ 
+            This creates the sanctions for a newly created document version.
+            Automatically adds the owner, any admins. If a doc (presumably the
+            previous) is passed in the user roles are copied from it.
+        """
+        # Start with just the creator of the doc
+        user_roles = {doc.creator: Sanction.ROLE_OWNER}
+
+        # Add any admins
+        if getattr(settings, 'CRYPT_ADMINS_DECRYPT', False):
+            admins = User.objects.filter(is_admin=True)
+            for admin in admins:
+                user_roles[admin] = Sanction.ROLE_OWNER
+
+        # Copy from previous
+        if previous:
+            for s in previous.sanctions.all():
+                user_roles[s.user] = s.role
+        
+        # Create the sanctions from user_roles
+        for user, role in user_roles.items():
+            encrypted_key = to_b64_str(user.encrypt(key))
+            Sanction.objects.create(
+                document=doc,
+                user=user,
+                role=role,
+                encrypted_key=encrypted_key,
+            )
 
 class Sanction(models.Model):
     ROLE_OWNER = 'owner'
@@ -203,10 +238,12 @@ class Sanction(models.Model):
     CAN_SANCTION_ROLES = {ROLE_ADMIN, ROLE_OWNER}
     CAN_DELETE_ROLES = {ROLE_ADMIN, ROLE_OWNER}
 
-    user = models.ForeignKey(User)
-    document = models.ForeignKey(Document)
+    user = models.ForeignKey(User, related_name='sanctions')
+    document = models.ForeignKey(Document, related_name='sanctions')
     role = models.CharField(max_length=20, choices=SANCTION_ROLES, default=ROLE_VIEWER)
     encrypted_key = models.TextField()
+
+    objects = SanctionManager()
 
     def can(self, action):
         if action == 'read':

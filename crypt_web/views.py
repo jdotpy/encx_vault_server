@@ -7,8 +7,16 @@ from crypt_core.security import generate_uuid, AES, RSA, hasher, to_b64_str, fro
 
 import io
 
-def home(request):
-    return 'Crypt Server'
+def ping(request):
+    return JsonResponse({
+        'message': 'pong',
+        'user': {
+            'user_name': request.user.user_name,
+            'fingerprint': request.user.get_fingerprint(),
+            'is_admin': request.user.is_admin,
+        },
+    })
+
 
 def add_user(request):
     if not request.user.can('create', models.User):
@@ -40,6 +48,7 @@ def user_init(request):
 def audit_log(request):
     user = request.GET.get('user', None)
     doc_path = request.GET.get('path', None)
+    action = request.GET.get('action', None)
 
     if not request.user.can('query', models.Audit):
         return FORBIDDEN
@@ -49,13 +58,14 @@ def audit_log(request):
         results = results.filter(user_name=user)
     if doc_path:
         results = results.filter(document_path=doc_path)
+    if action:
+        results = results.filter(action=action)
 
     log = list(map(models.Audit.struct, results))
     return JsonResponse({
         'log': log
     })
 
-    
 def doc_query(request):
     if not request.user.can('query', models.Document):
         return FORBIDDEN
@@ -105,6 +115,52 @@ def doc_new(request):
     return JsonResponse({
         'success': True,
         'path': path
+    })
+
+def doc_update(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            'success': False,
+            'message': 'You must POST to this endpoint',
+        }, status=405)
+
+    path = request.POST.get('path', None)
+    try:
+        previous_version = models.Document.objects.latest_versions().get(path=path)
+    except models.Document.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'No Document with this path to edit',
+        }, status=404)
+        
+    if not request.user.can(models.Audit.ACTION_UPDATE, previous_version):
+        return FORBIDDEN
+
+    file_obj = request.FILES.get('file', None)
+    if not file_obj:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid file upload',
+        }, status=400)
+
+    payload = file_obj.read()
+    if hasher(payload) == previous_version.data_fingerprint:
+        return JsonResponse({
+            'success': False,
+            'message': 'Document unchanged.',
+        }, status=400)
+
+    doc = models.Document.objects.new(
+        request.user,
+        path,
+        payload,
+        previous=previous_version,
+    )
+    doc.audit(request.user, models.Audit.ACTION_CREATE)
+
+    return JsonResponse({
+        'success': True,
+        'doc': doc.struct(),
     })
 
 def doc_read_meta(request):
