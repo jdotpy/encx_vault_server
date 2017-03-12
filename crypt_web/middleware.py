@@ -1,5 +1,3 @@
-from flask import request
-
 from .models import User
 from .utils import NOT_AUTHED, FORBIDDEN, AUTH_FAILED
 

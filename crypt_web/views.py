@@ -1,6 +1,7 @@
 from django.http import JsonResponse, FileResponse
-from crypt_core.security import AES, RSA, hasher, to_b64_str, from_b64_str
 
+from crypt_core.security import AES, RSA, hasher, to_b64_str, from_b64_str
+from .utils  import FORBIDDEN
 from . import models
 
 import io
@@ -9,7 +10,8 @@ def home(request):
     return 'Crypt Server'
 
 def add_user(request):
-    pass
+    if not request.user.can('create', models.User):
+        return FORBIDDEN
 
 def user_init(request):
     if request.user.initialized:
@@ -34,19 +36,23 @@ def user_init(request):
         'private_key': private_key,
     })
 
-def query(request):
+def doc_query(request):
+    if not request.user.can('query', models.Document):
+        return FORBIDDEN
+
     search_term = request.GET.get('q', None)
-    results = models.Document.objects.filter().only('path', 'created')
+    results = models.Document.objects.latest_versions(for_user=request.user)
     if search_term:
-        results = results.filter(path={'$regex': search_term})
-    results = results.order_by('path')
-    documents = []
+        results = results.filter(path__icontains=search_term)
     documents = list(map(models.Document.struct, results))
     return JsonResponse({
         'documents': documents
     })
 
-def new(request):
+def doc_new(request):
+    if not request.user.can('create', models.Document):
+        return FORBIDDEN
+
     if request.method != 'POST':
         return JsonResponse({
             'success': False,
@@ -72,58 +78,53 @@ def new(request):
             'message': 'Document already exists',
         }, status=400)
 
+    models.Document.objects.new(path, file_obj.read(), users)
 
-
-    payload = file_obj.read()
-    file_obj.seek(0)
-    new_key = AES.generate_key()
-    raw_aes_key = from_b64_str(new_key)
-    encryption_metadata = {}
-    aes = AES(encryption_metadata, key=new_key)
-    encrypted_payload = aes.encrypt(file_obj)
-
-    # Save encrypted data
-    doc = models.Document(
-        path=path,
-        encrypted_data=encrypted_payload,
-        key_fingerprint=hasher(new_key),
-        data_fingerprint=hasher(payload),
-        metadata=encryption_metadata,
-        creator=request.user,
-    )
-    doc.save()
-
-    # Encrypt key with public key of all sanctioned users
-    sanctioned_users = [request.user]
-    for user in sanctioned_users:
-        rsa = RSA({}, key=user.public_key)
-        encrypted_key = rsa.encrypt(raw_aes_key)
-        encrypted_key = to_b64_str(encrypted_key)
-        models.Sanction(
-            document=doc,
-            user=user,
-            encrypted_key=encrypted_key,
-        ).save()
-
+    doc.audit(request.user, models.Audit.ACTION_CREATE)
 
     return JsonResponse({
         'success': True,
         'path': path
     })
 
-def read(request):
+def doc_read_meta(request):
     path = request.GET.get('path', None)
-    doc = models.Document.objects.get(path=path)
-    sanction = models.Sanction.objects.get(document=doc, user=request.user)
+    doc = models.Document.objects.latest_versions().get(path=path)
+
+    if not request.user.can('read', doc):
+        return FORBIDDEN
+
+    sanction = doc.sanction_for(request.user)
     return JsonResponse({
         'path': path,
         'metadata': doc.metadata,
         'encrypted_key': sanction.encrypted_key,
     })
 
-def read_data(request):
+def doc_read_data(request):
     path = request.GET.get('path', None)
-    doc = models.Document.objects.get(path=path)
-    sanction = models.Sanction.objects.get(document=doc, user=request.user)
+    doc = models.Document.objects.latest_versions().get(path=path)
+
+    if not request.user.can('read', doc):
+        return FORBIDDEN
+
+    doc.audit(request.user, models.Audit.ACTION_READ)
     return FileResponse(io.BytesIO(doc.encrypted_data))
 
+def doc_versions(request):
+    path = request.GET.get('path', None)
+
+    if not request.user.can('query', models.Document):
+        return FORBIDDEN
+
+    results = models.Document.objects.for_user(request.user).filter(path=path)
+    versions = list(map(models.Document.struct, results))
+    return JsonResponse({
+        'documents': versions,
+    })
+
+def doc_remove_version(request):
+    return FORBIDDEN
+
+def doc_destroy(request):
+    return FORBIDDEN

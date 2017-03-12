@@ -4,9 +4,12 @@ from . import views
 
 urlpatterns = [
     url(r'^$', views.home),
-    url(r'^init-user$', views.user_init),
-    url(r'^query$', views.query),
-    url(r'^new$', views.new),
-    url(r'^document$', views.read),
-    url(r'^document/data$', views.read_data),
+    url(r'^users/init$', views.user_init),
+    url(r'^docs/query$', views.doc_query),
+    url(r'^docs/new$', views.doc_new),
+    url(r'^doc/meta$', views.doc_read_meta),
+    url(r'^doc/versions$', views.doc_versions),
+    url(r'^doc/remove-version$', views.doc_remove_version),
+    url(r'^doc/destroy$', views.doc_destroy),
+    url(r'^doc/data$', views.doc_read_data),
 ]

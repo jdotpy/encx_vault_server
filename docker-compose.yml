@@ -3,6 +3,18 @@ services:
   db:
     environment:
      - POSTGRES_PASSWORD
+     - POSTGRES_DB
     ports:
      - "5432:5432"
     image: postgres:9.6
+  #web:
+  #  build: .
+  #  ports:
+  #   - "8000:8000"
+  #  volumes:
+  #   - .
+  #  environment:
+  #   - POSTGRES_PASSWORD
+  #   - POSTGRES_DB
+  #   - POSTGRES_HOST
+  #   - DJANGO_SECRET_KEY
