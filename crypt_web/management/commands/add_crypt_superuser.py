@@ -6,12 +6,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         user_name = input('Enter username:')
-        user = User(
-            user_name=user_name,
-            is_admin=True,
-            initialized=False,
-        )
-        token = user.regen_token()
-        user.save()
+        user, token = User.objects.new(user_name, is_admin=True)
         print('New Token:', token)
         print('Run command: "cli.py init" and have the above token ready')

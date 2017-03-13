@@ -18,6 +18,17 @@ class Team(models.Model):
     def __str__(self):
         return self.team_name
 
+class UserManager(models.Manager):
+    def new(self, user_name, is_admin=False):
+        user = User(
+            user_name=user_name,
+            is_admin=is_admin,
+            initialized=False,
+        )
+        token = user.regen_token()
+        user.save()
+        return user, token
+
 class User(models.Model):
     user_name = models.CharField(primary_key=True, max_length=100)
     public_key = models.TextField()
@@ -27,6 +38,8 @@ class User(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     documents = models.ManyToManyField('Document', through='Sanction')
     teams = models.ManyToManyField('Team', through='Membership')
+
+    objects = UserManager()
 
     def __str__(self):
         return self.user_name
@@ -44,9 +57,9 @@ class User(models.Model):
     def check_token(self, token):
         return check_password(token, self.token)
 
-    def encrypt(self, raw_payload):
+    def encrypt(self, payload, encode=False):
         rsa = RSA({}, key=self.public_key)
-        encrypted_payload = rsa.encrypt(raw_payload)
+        encrypted_payload = rsa.encrypt(payload, encode=encode)
         return encrypted_payload
 
     def can(self, action, obj=None):
@@ -63,7 +76,7 @@ class User(models.Model):
         elif action == 'read':
             if isinstance(obj, Document):
                 sanction = obj.sanction_for(self)
-                return sanction and saction.can(action)
+                return bool(sanction and saction.can(action))
 
         elif action == 'edit':
             if isinstance(obj, Document):
@@ -120,7 +133,7 @@ class DocumentManager(models.Manager):
     def latest_versions(self, for_user=None):
         latest = self.distinct('path').order_by('path', '-created')
         if for_user:
-            latest = self.for_user(for_user, latest)
+            latest = self.for_user(for_user, qs=latest)
         return latest
 
     def for_user(self, user, qs=None):
@@ -129,13 +142,6 @@ class DocumentManager(models.Manager):
         if user.is_admin:
             return qs
         return qs.filter(sanction__user=for_user)
-
-    def sanctions_for_update(self):
-        """
-            One might think this function would just copy the sanctions over
-            but we also need to take into account the fact that admin users 
-            may have changed.
-        """
 
 class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -160,6 +166,16 @@ class Document(models.Model):
             return Sanction.objects.get(document=self, user=user)
         except Sanction.DoesNotExist:
             return None
+
+    def sanction_user(self, user, role, key):
+        """ Create a new Sanction to authorize a user for a role on this document """
+        encrypted_key = user.encrypt(from_b64_str(key), encode=True)
+        return Sanction.objects.create(
+            document=self,
+            user=user,
+            role=role,
+            encrypted_key=encrypted_key,
+        )
 
     def struct(self):
         return {
@@ -203,7 +219,7 @@ class SanctionManager(models.Manager):
 
         # Add any admins
         if getattr(settings, 'CRYPT_ADMINS_DECRYPT', False):
-            admins = User.objects.filter(is_admin=True)
+            admins = User.objects.filter(is_admin=True, initialized=True)
             for admin in admins:
                 user_roles[admin] = Sanction.ROLE_OWNER
 
@@ -214,7 +230,10 @@ class SanctionManager(models.Manager):
         
         # Create the sanctions from user_roles
         for user, role in user_roles.items():
-            encrypted_key = to_b64_str(user.encrypt(key))
+            print('Giving the user {} the role {} on {}'.format(
+                user.user_name, role, doc.path
+            ))
+            encrypted_key = user.encrypt(key, encode=True)
             Sanction.objects.create(
                 document=doc,
                 user=user,
@@ -233,6 +252,7 @@ class Sanction(models.Model):
         (ROLE_EDITOR, 'Editor'),
         (ROLE_VIEWER, 'Viewer'),
     )
+    ALL_ROLES = [r[0] for r in SANCTION_ROLES]
     CAN_READ_ROLES = {ROLE_VIEWER, ROLE_EDITOR, ROLE_ADMIN, ROLE_OWNER}
     CAN_EDIT_ROLES = {ROLE_EDITOR, ROLE_ADMIN, ROLE_OWNER}
     CAN_SANCTION_ROLES = {ROLE_ADMIN, ROLE_OWNER}
@@ -255,6 +275,15 @@ class Sanction(models.Model):
         elif action == 'delete':
             return self.role in self.CAN_DELETE_ROLES
         return False
+
+    def sanctionable_roles(self):
+        """ The user this sanction is for can grant the returned roles """
+        if self.role == self.ROLE_OWNER:
+            return self.ALL_ROLES
+        elif self.role == self.ROLE_ADMIN:
+            return [self.ROLE_VIEWER, self.ROLE_EDITOR]
+        else:
+            return []
 
 class Audit(models.Model):
     ACTION_CREATE = 'create'

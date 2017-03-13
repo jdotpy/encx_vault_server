@@ -17,17 +17,79 @@ def ping(request):
         },
     })
 
-
-def add_user(request):
+def user_new(request):
     if not request.user.can('create', models.User):
         return FORBIDDEN
+
+    user_name = request.POST.get('user_name', None)
+
+    # Ensure we don't replace existing user
+    if models.User.objects.filter(user_name=user_name).exists():
+        return JsonResponse({
+            'success': False,
+            'message': 'User already exists',
+        }, status=403)
+        
+    # Make new one with starting token for initializing
+    user, token = models.User.objects.new(user_name, is_admin=False)
+    return JsonResponse({
+        'success': True,
+        'user_name': user.user_name,
+        'token': token,
+    })
+
+def doc_sanction(request):
+    user_name = request.POST.get('user', None)
+    role = request.POST.get('role', None)
+    path = request.POST.get('path', None)
+    key = request.POST.get('key', None)
+
+    try:
+        doc = models.Document.objects.latest_versions().get(path=path)
+    except models.Document.DoesNotExist:
+        return FORBIDDEN # Dont give a 404 before permission check 
+
+    # Check to see if the user can do any kind of sanction
+    if not request.user.can('sanction', doc):
+        return FORBIDDEN
+
+    try:
+        user = models.User.objects.get(user_name=user_name)
+    except models.User.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'User does not exist.',
+        }, status=400)
+    if not user.initialized:
+        return JsonResponse({
+            'success': False,
+            'message': 'User is not initialized... no sanctions can be done.',
+        }, status=400)
+
+    # Check to see if the user can sanction the specified role
+    requesters_sanction = doc.sanction_for(request.user)
+    if role not in requesters_sanction.sanctionable_roles():
+        return FORBIDDEN # They can sanction, but not this particular role
+
+    # Check their provided key against the fingerprint on doc
+    if not key or hasher(key) != doc.key_fingerprint:
+        return JsonResponse({
+            'success': False,
+            'message': 'The key you gave doesnt match our records, must be a faker',
+        }, status=403)
+
+    # +1 Good to go
+    doc.sanction_user(user, role, key)
+    return JsonResponse({
+        'success': True,
+    })
 
 def user_init(request):
     if request.user.initialized:
         return JsonResponse({
             'success': False,
             'message': 'A User cannot be re-initialized',
-        }, code=403)
+        }, status=403)
 
     passphrase = request.POST.get('passphrase', None)
 
@@ -128,10 +190,7 @@ def doc_update(request):
     try:
         previous_version = models.Document.objects.latest_versions().get(path=path)
     except models.Document.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'message': 'No Document with this path to edit',
-        }, status=404)
+        return FORBIDDEN # Dont give a 404 before permission check 
         
     if not request.user.can(models.Audit.ACTION_UPDATE, previous_version):
         return FORBIDDEN
@@ -165,12 +224,17 @@ def doc_update(request):
 
 def doc_read_meta(request):
     path = request.GET.get('path', None)
-    doc = models.Document.objects.latest_versions().get(path=path)
+    doc = models.Document.objects.latest_versions(for_user=request.user).get(path=path)
 
     if not request.user.can('read', doc):
         return FORBIDDEN
 
     sanction = doc.sanction_for(request.user)
+    if not sanction:
+        return JsonResponse({
+            'success': False,
+            'message': 'You do not have a sanction for this document.',
+        }, status=400)
     return JsonResponse({
         'path': path,
         'metadata': doc.metadata,
