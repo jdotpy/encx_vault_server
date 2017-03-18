@@ -3,8 +3,7 @@ from django.http import JsonResponse, FileResponse
 from .utils  import FORBIDDEN
 from . import models
 
-from crypt_core.security import generate_uuid, AES, RSA, hasher, to_b64_str, from_b64_str
-
+import json
 import io
 
 def ping(request):
@@ -12,7 +11,7 @@ def ping(request):
         'message': 'pong',
         'user': {
             'user_name': request.user.user_name,
-            'fingerprint': request.user.get_fingerprint(),
+            'public_key': request.user.public_key,
             'is_admin': request.user.is_admin,
         },
     })
@@ -38,14 +37,40 @@ def user_new(request):
         'token': token,
     })
 
-def doc_sanction(request):
-    user_name = request.POST.get('user', None)
-    role = request.POST.get('role', None)
-    path = request.POST.get('path', None)
-    key = request.POST.get('key', None)
+def user_get(request):
+    if not request.user.can('read', models.User):
+        return FORBIDDEN
+    user_name = request.GET.get('user_name', None)
 
     try:
-        doc = models.Document.objects.latest_versions().get(path=path)
+        user = models.User.objects.get(user_name=user_name)
+    except models.User.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'User doesnt exists',
+        }, status=403)
+        
+    return JsonResponse({
+        'success': True,
+        'user': {
+            'user_name': user.user_name,
+            'public_key': user.public_key,
+        },
+    })
+
+def doc_sanction(request):
+    user_name = request.POST.get('user', None)
+    encrypted_key = request.POST.get('encrypted_key', None)
+    key_metadata = request.POST.get('key_metadata', None)
+    path = request.POST.get('path', None)
+    version = request.POST.get('version', None)
+
+    if version is not None:
+        query = models.Document.objects.latest_versions().filter(path=path)
+    else:
+        query = models.Document.objects.filter(version=version, path=path)
+    try:
+        doc = query.get()
     except models.Document.DoesNotExist:
         return FORBIDDEN # Dont give a 404 before permission check 
 
@@ -66,20 +91,12 @@ def doc_sanction(request):
             'message': 'User is not initialized... no sanctions can be done.',
         }, status=400)
 
-    # Check to see if the user can sanction the specified role
-    requesters_sanction = doc.sanction_for(request.user)
-    if role not in requesters_sanction.sanctionable_roles():
-        return FORBIDDEN # They can sanction, but not this particular role
-
-    # Check their provided key against the fingerprint on doc
-    if not key or hasher(key) != doc.key_fingerprint:
-        return JsonResponse({
-            'success': False,
-            'message': 'The key you gave doesnt match our records, must be a faker',
-        }, status=403)
+    existing_sanction = doc.sanction_for(user)
+    if existing_sanction:
+        existing_sanction.delete()
 
     # +1 Good to go
-    doc.sanction_user(user, role, key)
+    doc.sanction_user(user, encrypted_key, json.loads(key_metadata))
     return JsonResponse({
         'success': True,
     })
@@ -91,11 +108,7 @@ def user_init(request):
             'message': 'A User cannot be re-initialized',
         }, status=403)
 
-    passphrase = request.POST.get('passphrase', None)
-
-    key = RSA({}, RSA.generate_key())
-    private_key = key.get_key(passphrase=passphrase)
-    public_key = key.get_public_key()
+    public_key = request.POST.get('public_key', None)
     request.user.public_key = public_key
     new_token = request.user.regen_token()
     request.user.initialized = True
@@ -104,7 +117,6 @@ def user_init(request):
         'success': True,
         'token': new_token,
         'public_key': public_key,
-        'private_key': private_key,
     })
 
 def audit_log(request):
@@ -141,8 +153,11 @@ def doc_query(request):
         'documents': documents
     })
 
-def doc_new(request):
-    if not request.user.can('create', models.Document):
+def doc_create_version(request, update=False):
+    action = 'create'
+    if update:
+        action = 'update'
+    if not request.user.can(action, models.Document):
         return FORBIDDEN
 
     if request.method != 'POST':
@@ -151,8 +166,9 @@ def doc_new(request):
             'message': 'You must POST to this endpoint',
         }, status=405)
 
-    file_obj = request.FILES.get('file', None)
+    file_obj = request.FILES.get('encrypted_document', None)
     path = request.POST.get('path', None)
+    document_fingerprint = request.POST.get('document_fingerprint', None)
 
     if not file_obj:
         return JsonResponse({
@@ -164,62 +180,41 @@ def doc_new(request):
             'success': False,
             'message': 'Invalid file path',
         }, status=400)
-    if models.Document.objects.filter(path=path).exists():
+
+    try: 
+        existing = models.Document.objects.latest_versions().get(path=path)
+    except models.Document.DoesNotExist:
+        existing = None
+
+    if update:
+        if existing is None:
+            return JsonResponse({
+                'success': False,
+                'message': 'Document doesnt exist!',
+            }, status=400)
+        if existing.document_fingerprint == document_fingerprint:
+            return JsonResponse({
+                'success': False,
+                'message': 'Document didnt change! (Digest matched previous)',
+            }, status=400)
+    elif existing:
         return JsonResponse({
             'success': False,
-            'message': 'Document already exists',
+            'message': 'Document already exists!',
         }, status=400)
 
-    doc = models.Document.objects.new(request.user, path, file_obj.read())
-
+    doc = models.Document.objects.create(
+        creator=request.user,
+        path=path,
+        encrypted_data=file_obj.read(),
+        data_fingerprint=document_fingerprint,
+        key_fingerprint=request.POST.get('key_fingerprint'),
+        metadata=json.loads(request.POST.get('document_metadata')),
+    )
     doc.audit(request.user, models.Audit.ACTION_CREATE)
-
     return JsonResponse({
         'success': True,
         'path': path
-    })
-
-def doc_update(request):
-    if request.method != 'POST':
-        return JsonResponse({
-            'success': False,
-            'message': 'You must POST to this endpoint',
-        }, status=405)
-
-    path = request.POST.get('path', None)
-    try:
-        previous_version = models.Document.objects.latest_versions().get(path=path)
-    except models.Document.DoesNotExist:
-        return FORBIDDEN # Dont give a 404 before permission check 
-        
-    if not request.user.can(models.Audit.ACTION_UPDATE, previous_version):
-        return FORBIDDEN
-
-    file_obj = request.FILES.get('file', None)
-    if not file_obj:
-        return JsonResponse({
-            'success': False,
-            'message': 'Invalid file upload',
-        }, status=400)
-
-    payload = file_obj.read()
-    if hasher(payload) == previous_version.data_fingerprint:
-        return JsonResponse({
-            'success': False,
-            'message': 'Document unchanged.',
-        }, status=400)
-
-    doc = models.Document.objects.new(
-        request.user,
-        path,
-        payload,
-        previous=previous_version,
-    )
-    doc.audit(request.user, models.Audit.ACTION_CREATE)
-
-    return JsonResponse({
-        'success': True,
-        'doc': doc.struct(),
     })
 
 def doc_read_meta(request):
@@ -235,10 +230,12 @@ def doc_read_meta(request):
             'success': False,
             'message': 'You do not have a sanction for this document.',
         }, status=400)
+
     return JsonResponse({
         'path': path,
-        'metadata': doc.metadata,
+        'document_metadata': doc.metadata,
         'encrypted_key': sanction.encrypted_key,
+        'key_metadata': sanction.metadata,
     })
 
 def doc_read_data(request):
@@ -267,4 +264,18 @@ def doc_remove_version(request):
     return FORBIDDEN
 
 def doc_destroy(request):
-    return FORBIDDEN
+    path = request.POST.get('path', None)
+    if not request.user.can('delete', models.Document):
+        return FORBIDDEN
+
+    documents = []
+    queryset = models.Document.objects.filter(path=path)
+    for document in queryset:
+        documents.append({
+            'id': document.id,
+        })
+        document.delete()
+        
+    return JsonResponse({
+        'documents': documents,
+    })

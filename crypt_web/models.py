@@ -4,11 +4,8 @@ from django.conf import settings
 from datetime import datetime
 from django.db import models
 
-from crypt_core.security import generate_uuid, AES, RSA, hasher, to_b64_str, from_b64_str
-
 import uuid
 import io
-
 
 class Team(models.Model):
     team_name = models.CharField(primary_key=True, max_length=100)
@@ -44,13 +41,8 @@ class User(models.Model):
     def __str__(self):
         return self.user_name
 
-    def get_fingerprint(self):
-        ## I'd like a more standardized fingerprinting format/source
-        ## This should prove unique though
-        return hasher(self.public_key)
-
     def regen_token(self):
-        token = generate_uuid()
+        token = str(uuid.uuid4())
         self.token = make_password(token)
         return token
 
@@ -76,7 +68,7 @@ class User(models.Model):
         elif action == 'read':
             if isinstance(obj, Document):
                 sanction = obj.sanction_for(self)
-                return bool(sanction and saction.can(action))
+                return bool(sanction)
 
         elif action == 'edit':
             if isinstance(obj, Document):
@@ -108,28 +100,6 @@ class User(models.Model):
         return False
 
 class DocumentManager(models.Manager):
-    def new(self, creator, path, payload, previous=None):
-        new_key = AES.generate_key()
-        raw_aes_key = from_b64_str(new_key)
-        encryption_metadata = {}
-        aes = AES(encryption_metadata, key=new_key)
-        encrypted_payload = aes.encrypt(io.BytesIO(payload))
-
-        # Save encrypted data
-        doc = Document(
-            path=path,
-            encrypted_data=encrypted_payload,
-            key_fingerprint=hasher(new_key),
-            data_fingerprint=hasher(payload),
-            metadata=encryption_metadata,
-            creator=creator,
-        )
-        doc.save()
-
-        # Encrypt key with public key of all sanctioned users
-        Sanction.objects.create_for_doc(doc, raw_aes_key, previous=previous)
-        return doc
-
     def latest_versions(self, for_user=None):
         latest = self.distinct('path').order_by('path', '-created')
         if for_user:
@@ -141,7 +111,7 @@ class DocumentManager(models.Manager):
             qs = self.filter()
         if user.is_admin:
             return qs
-        return qs.filter(sanction__user=for_user)
+        return qs.filter(sanctions__user=user)
 
 class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -167,14 +137,13 @@ class Document(models.Model):
         except Sanction.DoesNotExist:
             return None
 
-    def sanction_user(self, user, role, key):
+    def sanction_user(self, user, encrypted_key, key_metadata):
         """ Create a new Sanction to authorize a user for a role on this document """
-        encrypted_key = user.encrypt(from_b64_str(key), encode=True)
         return Sanction.objects.create(
             document=self,
             user=user,
-            role=role,
             encrypted_key=encrypted_key,
+            metadata=key_metadata,
         )
 
     def struct(self):
@@ -260,30 +229,13 @@ class Sanction(models.Model):
 
     user = models.ForeignKey(User, related_name='sanctions')
     document = models.ForeignKey(Document, related_name='sanctions')
-    role = models.CharField(max_length=20, choices=SANCTION_ROLES, default=ROLE_VIEWER)
     encrypted_key = models.TextField()
+    metadata = JSONField()
 
     objects = SanctionManager()
 
-    def can(self, action):
-        if action == 'read':
-            return self.role in self.CAN_READ_ROLES
-        elif action == 'edit':
-            return self.role in self.CAN_EDIT_ROLES
-        elif action == 'sanction':
-            return self.role in self.CAN_ADD_SANCTION_ROLES
-        elif action == 'delete':
-            return self.role in self.CAN_DELETE_ROLES
-        return False
-
-    def sanctionable_roles(self):
-        """ The user this sanction is for can grant the returned roles """
-        if self.role == self.ROLE_OWNER:
-            return self.ALL_ROLES
-        elif self.role == self.ROLE_ADMIN:
-            return [self.ROLE_VIEWER, self.ROLE_EDITOR]
-        else:
-            return []
+    class Meta:
+        unique_together = ('user', 'document')
 
 class Audit(models.Model):
     ACTION_CREATE = 'create'
