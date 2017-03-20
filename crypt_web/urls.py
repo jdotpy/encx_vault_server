@@ -5,6 +5,8 @@ from . import views
 urlpatterns = [
     url(r'^ping$', views.ping),
     url(r'^user$', views.user_get),
+    url(r'^user/root$', views.user_get_root),
+    url(r'^user/sign$', views.sign_user),
     url(r'^users/new$', views.user_new),
     url(r'^user/init$', views.user_init),
     url(r'^audit/log$', views.audit_log),

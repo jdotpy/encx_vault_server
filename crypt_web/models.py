@@ -7,39 +7,43 @@ from django.db import models
 import uuid
 import io
 
-class Team(models.Model):
-    team_name = models.CharField(primary_key=True, max_length=100)
-    created = models.DateTimeField(auto_now_add=True)
-    creator = models.ForeignKey('User')
-
-    def __str__(self):
-        return self.team_name
-
 class UserManager(models.Manager):
-    def new(self, user_name, is_admin=False):
-        user = User(
-            user_name=user_name,
-            is_admin=is_admin,
-            initialized=False,
-        )
+    def new(self, **kwargs):
+        kwargs['initialized'] = False
+        user = User(**kwargs)
         token = user.regen_token()
         user.save()
         return user, token
 
 class User(models.Model):
+    ROOT_USER_NAME = 'root'
+
     user_name = models.CharField(primary_key=True, max_length=100)
     public_key = models.TextField()
     token = models.CharField(max_length=128)
     is_admin = models.BooleanField(default=False)
     initialized = models.BooleanField(default=False)
+    signer = models.ForeignKey('self', null=True, blank=True)
+    signature = models.TextField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     documents = models.ManyToManyField('Document', through='Sanction')
-    teams = models.ManyToManyField('Team', through='Membership')
 
     objects = UserManager()
 
     def __str__(self):
         return self.user_name
+
+    def struct(self):
+        return {
+            'user_name': self.user_name,
+            'public_key': self.public_key,
+            'signer': self.signer_id,
+            'signature': self.signature,
+            'initialized': self.initialized,
+            'is_admin': self.is_admin,
+            'created': str(self.created),
+        }
+
 
     def regen_token(self):
         token = str(uuid.uuid4())
@@ -70,6 +74,9 @@ class User(models.Model):
                 sanction = obj.sanction_for(self)
                 return bool(sanction)
 
+            if obj is User:
+                return True
+
         elif action == 'edit':
             if isinstance(obj, Document):
                 sanction = obj.sanction_for(self)
@@ -80,10 +87,12 @@ class User(models.Model):
                 sanction = obj.sanction_for(self)
                 return sanction and saction.can(action)
 
+        elif action == 'sign':
+            if isinstance(obj, User):
+                return user.is_admin
+
         elif action == 'create':
-            if obj == Team and user.is_admin:
-                return True
-            elif obj == User and user.is_admin:
+            if obj == User and user.is_admin:
                 return True
             elif obj == Document:
                 if user.is_admin:
@@ -164,17 +173,6 @@ class Document(models.Model):
                 document_version=self.id,
                 action=action,
             )
-
-class Membership(models.Model):
-    MEMBERSHIP_ROLES = (
-        ('owner', 'Owner'),
-        ('admin', 'Administrator'),
-        ('user', 'User'),
-    )
-
-    user = models.ForeignKey(User)
-    team = models.ForeignKey(Team)
-    role = models.CharField(max_length=20, choices=MEMBERSHIP_ROLES)
 
 class SanctionManager(models.Manager):
     def create_for_doc(self, doc, key, previous=None):
