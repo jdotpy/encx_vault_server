@@ -109,6 +109,17 @@ class User(models.Model):
         return False
 
 class DocumentManager(models.Manager):
+    def get_doc(self, user, path, version=None):
+        if version:
+            query = self.filter(id=version, path=path)
+        else:
+            query = self.latest_versions(for_user=user).filter(path=path)
+        try:
+            return query.get()
+        except (Document.DoesNotExist, ValueError):
+            ## We're catching the UUID parsing error as well, hence the ValueError ##
+            return None
+
     def latest_versions(self, for_user=None):
         latest = self.distinct('path').order_by('path', '-created')
         if for_user:
@@ -160,7 +171,7 @@ class Document(models.Model):
             'id': self.id,
             'path': self.path,
             'metadata': self.metadata,
-            'data_fingerprint': self.data_fingerprint,
+            'document_fingerprint': self.data_fingerprint,
             'creator': str(self.creator),
             'created': str(self.created),
         }
