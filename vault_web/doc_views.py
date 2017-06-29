@@ -98,7 +98,7 @@ def doc_create_version(request, update=False):
 
     file_obj = request.FILES.get('encrypted_document', None)
     path = request.POST.get('path', None)
-    document_fingerprint = request.POST.get('document_fingerprint', None)
+    signature = request.POST.get('signature', None)
 
     if not file_obj:
         return JsonResponse({
@@ -122,7 +122,7 @@ def doc_create_version(request, update=False):
                 'success': False,
                 'message': 'Document doesnt exist!',
             }, status=400)
-        if existing.data_fingerprint == document_fingerprint:
+        if existing.signature == signature:
             return JsonResponse({
                 'success': False,
                 'message': 'Document didnt change! (Digest matched previous)',
@@ -137,7 +137,7 @@ def doc_create_version(request, update=False):
         creator=request.user,
         path=path,
         encrypted_data=file_obj.read(),
-        data_fingerprint=document_fingerprint,
+        signature=signature,
         key_fingerprint=request.POST.get('key_fingerprint'),
         metadata=json.loads(request.POST.get('document_metadata')),
     )
@@ -174,7 +174,7 @@ def doc_read_meta(request):
     return JsonResponse({
         'id': doc.id,
         'path': doc.path,
-        'document_fingerprint': doc.data_fingerprint,
+        'signature': doc.signature,
         'document_metadata': doc.metadata,
         'encrypted_key': sanction.encrypted_key,
         'key_metadata': sanction.metadata,

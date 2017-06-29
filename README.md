@@ -1,9 +1,9 @@
-# Crypt Server
+# Vault Server
  
 **Description**: 
 
 This package provides a server intended to be used by the 
-[crypt CLI tool](https://github.com/jdotpy/crypt). 
+[vault CLI tool](https://github.com/jdotpy/vault). 
 
 Please see that repository for further documentation.
 
@@ -17,11 +17,11 @@ Please see that repository for further documentation.
  
 ## Installation
 
-pip installation can install just the crypt_web django app for integration
+pip installation can install just the vault_web django app for integration
 into the server of your choice. If a whole server is required I recommend 
 using the docker-container (#WIP) behind nginx.
 
-	pip install https://github.com/jdotpy/crypt_server/archive/stable.tar.gz
+	pip install https://github.com/jdotpy/vault_server/archive/stable.tar.gz
 
 
 Once it is running you will need to run this command to setup the DB: 
@@ -30,7 +30,7 @@ Once it is running you will need to run this command to setup the DB:
 
 Then to initialize the root account (Take note of the token!): 
 
-	./bin/manage.py crypt_root_user
+	./bin/manage.py vault_root_user
 
 Then you're ready to use the client!
 
@@ -44,6 +44,6 @@ Then you're ready to use the client!
  
 ## Getting help
 
-Fill out an [issue on github](https://github.com/jdotpy/crypt_server/issues) please :)
+Fill out an [issue on github](https://github.com/jdotpy/vault_server/issues) please :)
 
 

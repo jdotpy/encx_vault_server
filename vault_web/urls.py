@@ -9,8 +9,6 @@ urlpatterns = [
 
     # Users
     url(r'^user$', user_views.user_get),
-    url(r'^user/root$', user_views.user_get_root),
-    url(r'^user/sign$', user_views.sign_user),
     url(r'^users/new$', user_views.user_new),
     url(r'^user/init$', user_views.user_init),
 

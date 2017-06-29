@@ -16,15 +16,11 @@ class UserManager(models.Manager):
         return user, token
 
 class User(models.Model):
-    ROOT_USER_NAME = 'root'
-
     user_name = models.CharField(primary_key=True, max_length=100)
     public_key = models.TextField()
     token = models.CharField(max_length=128)
     is_admin = models.BooleanField(default=False)
     initialized = models.BooleanField(default=False)
-    signer = models.ForeignKey('self', null=True, blank=True)
-    signature = models.TextField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
     documents = models.ManyToManyField('Document', through='Sanction')
 
@@ -37,8 +33,6 @@ class User(models.Model):
         return {
             'user_name': self.user_name,
             'public_key': self.public_key,
-            'signer': self.signer_id,
-            'signature': self.signature,
             'initialized': self.initialized,
             'is_admin': self.is_admin,
             'created': str(self.created),
@@ -87,10 +81,6 @@ class User(models.Model):
                 sanction = obj.sanction_for(self)
                 return sanction and saction.can(action)
 
-        elif action == 'sign':
-            if isinstance(obj, User):
-                return user.is_admin
-
         elif action == 'create':
             if obj == User and user.is_admin:
                 return True
@@ -137,9 +127,9 @@ class Document(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     path = models.CharField(max_length=200)
     encrypted_data = models.BinaryField()
+    signature = models.TextField()
     metadata = JSONField()
     key_fingerprint = models.TextField()
-    data_fingerprint = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
     creator = models.ForeignKey(User)
 
@@ -171,7 +161,7 @@ class Document(models.Model):
             'id': self.id,
             'path': self.path,
             'metadata': self.metadata,
-            'document_fingerprint': self.data_fingerprint,
+            'signature': self.signature,
             'creator': str(self.creator),
             'created': str(self.created),
         }

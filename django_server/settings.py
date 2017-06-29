@@ -30,7 +30,7 @@ ALLOWED_HOSTS = []
 
 
 INSTALLED_APPS = [
-    'crypt_web',
+    'vault_web',
 ]
 
 MIDDLEWARE = [
@@ -40,7 +40,7 @@ MIDDLEWARE = [
     #'django.middleware.csrf.CsrfViewMiddleware',
     #'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'crypt_web.middleware.make_crypt_auth_middleware',
+    'vault_web.middleware.make_vault_auth_middleware',
 ]
 
 ROOT_URLCONF = 'django_server.urls'
@@ -73,7 +73,7 @@ DATABASES = {
         'HOST': os.environ.get('POSTGRES_HOST', 'db'),
         'USER': 'postgres',
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD',''), 
-        'NAME': os.environ.get('POSTGRES_DB', 'crypt_web'),
+        'NAME': os.environ.get('POSTGRES_DB', 'vault_web'),
     }
 }
 
@@ -97,7 +97,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
-### Crypt-specific settings
-CRYPT_EVERYONE_CREATES = True
-CRYPT_ADMINS_DECRYPT = True
-CRYPT_ENABLE_AUDIT = True
+### Vault-specific settings
+VAULT_EVERYONE_CREATES = True
+VAULT_ADMINS_DEVAULT = True
+VAULT_ENABLE_AUDIT = True

@@ -45,61 +45,6 @@ def user_get(request):
         'user': user.struct(),
     })
 
-def sign_user(request):
-    if not request.user.can('sign', models.User):
-        return FORBIDDEN
-
-    user_name = request.POST.get('user_name', None)
-    public_key = request.POST.get('public_key', None)
-    signature = request.POST.get('signature', None)
-
-    try:
-        user = models.User.objects.get(user_name=user_name)
-    except models.User.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'message': 'User doesnt exists',
-        }, status=400)
-
-    if user.signature:
-        return JsonResponse({
-            'success': False,
-            'message': 'User has already been signed by {}'.format(
-                user.signer_id,
-            ),
-        }, status=400)
-
-    if public_key != user.public_key:
-        return JsonResponse({
-            'success': False,
-            'message': 'Public key does not match our records.',
-        }, status=400)
-
-    user.signer = request.user
-    user.signature = signature
-    user.save()
-    return JsonResponse({
-        'success': True,
-        'user': user.struct(),
-    })
-
-def user_get_root(request):
-    if not request.user.can('read', models.User):
-        return FORBIDDEN
-
-    try:
-        user = models.User.objects.get(user_name=models.User.ROOT_USER_NAME)
-    except models.User.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'message': 'Uhhh, huston, we have a problem',
-        }, status=500)
-        
-    return JsonResponse({
-        'success': True,
-        'user': user.struct(),
-    })
-
 def user_init(request):
     if request.user.initialized:
         return JsonResponse({
