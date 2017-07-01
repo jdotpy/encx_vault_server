@@ -7,14 +7,21 @@ services:
     ports:
      - "5432:5432"
     image: postgres:9.6
-  #web:
-  #  build: .
-  #  ports:
-  #   - "8000:8000"
-  #  volumes:
-  #   - .
-  #  environment:
-  #   - POSTGRES_PASSWORD
-  #   - POSTGRES_DB
-  #   - POSTGRES_HOST
-  #   - DJANGO_SECRET_KEY
+  web:
+    build: .
+    command: python3 manage.py runserver 0.0.0.0:8000
+    ports:
+     - "8000:8000"
+    depends_on:
+     - db
+    environment:
+     # System
+     - POSTGRES_HOST=db
+     - POSTGRES_DB=vault
+
+     # YOU MUST CUSTOMIZE: By default these come from your env variables
+     - POSTGRES_PASSWORD
+     - DJANGO_SECRET_KEY
+     # Instead you could make an override file and do like this:
+     #- POSTGRES_PASSWORD="pg_pass"
+     #- DJANGO_SECRET_KEY="0000000000000000000000"
