@@ -138,7 +138,6 @@ def doc_create_version(request, update=False):
         path=path,
         encrypted_data=file_obj.read(),
         signature=signature,
-        key_fingerprint=request.POST.get('key_fingerprint'),
         metadata=json.loads(request.POST.get('document_metadata')),
     )
     doc.audit(request.user, models.Audit.ACTION_CREATE)
@@ -178,6 +177,7 @@ def doc_read_meta(request):
         'document_metadata': doc.metadata,
         'encrypted_key': sanction.encrypted_key,
         'key_metadata': sanction.metadata,
+        'creator': doc.creator_id,
     })
 
 def doc_read_data(request):

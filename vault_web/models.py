@@ -129,7 +129,6 @@ class Document(models.Model):
     encrypted_data = models.BinaryField()
     signature = models.TextField()
     metadata = JSONField()
-    key_fingerprint = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
     creator = models.ForeignKey(User)
 
