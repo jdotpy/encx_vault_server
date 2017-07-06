@@ -3,9 +3,8 @@ WORKDIR /usr/src/app
 ENV PYTHONUNBUFFERED 1
 ENV PYTHONPATH $PYTHONPATH:/usr/src/app
 
-COPY requirements.txt /usr/src/app/
-COPY manage.py /usr/src/app/
-COPY django_server /usr/src/app/django_server/
-COPY vault_web /usr/src/app/vault_web/
+ADD requirements.txt /usr/src/app/
+
+VOLUME /usr/src/app
 
 RUN pip install -r requirements.txt

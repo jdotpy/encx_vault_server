@@ -51,6 +51,7 @@ class Migration(migrations.Migration):
             name='User',
             fields=[
                 ('user_name', models.CharField(max_length=100, primary_key=True, serialize=False)),
+                ('name', models.CharField(max_length=100, null=True, blank=True)),
                 ('public_key', models.TextField()),
                 ('token', models.CharField(max_length=128)),
                 ('is_admin', models.BooleanField(default=False)),

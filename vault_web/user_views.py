@@ -53,7 +53,12 @@ def user_init(request):
         }, status=403)
 
     public_key = request.POST.get('public_key', None)
+    name = request.POST.get('name', None)
+
+    print('Got name:', name)
+
     request.user.public_key = public_key
+    request.user.name = name
     new_token = request.user.regen_token()
     request.user.initialized = True
     request.user.save()
@@ -61,4 +66,5 @@ def user_init(request):
         'success': True,
         'token': new_token,
         'public_key': public_key,
+        'name': name,
     })

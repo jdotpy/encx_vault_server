@@ -17,6 +17,7 @@ class UserManager(models.Manager):
 
 class User(models.Model):
     user_name = models.CharField(primary_key=True, max_length=100)
+    name = models.CharField(max_length=100, null=True, blank=True)
     public_key = models.TextField()
     token = models.CharField(max_length=128)
     is_admin = models.BooleanField(default=False)
@@ -32,6 +33,7 @@ class User(models.Model):
     def struct(self):
         return {
             'user_name': self.user_name,
+            'name': self.name,
             'public_key': self.public_key,
             'initialized': self.initialized,
             'is_admin': self.is_admin,
