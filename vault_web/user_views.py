@@ -27,24 +27,6 @@ def user_new(request):
         'token': token,
     })
 
-def user_get(request):
-    if not request.user.can('read', models.User):
-        return FORBIDDEN
-    user_name = request.GET.get('user_name', None)
-
-    try:
-        user = models.User.objects.get(user_name=user_name)
-    except models.User.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'message': 'User doesnt exists',
-        }, status=403)
-        
-    return JsonResponse({
-        'success': True,
-        'user': user.struct(),
-    })
-
 def user_init(request):
     if request.user.initialized:
         return JsonResponse({
@@ -68,3 +50,36 @@ def user_init(request):
         'public_key': public_key,
         'name': name,
     })
+
+def user_op_get(request, user):
+    if not request.user.can('read', models.User):
+        return FORBIDDEN
+
+    return JsonResponse({
+        'success': True,
+        'user': user.struct(),
+    })
+
+def user_op_delete(reques, user):
+    if not request.user.can('delete', models.User):
+        return FORBIDDEN
+    user.delete()
+    return JsonResponse({
+        'success': False,
+        'message': 'User deleted',
+        'user': user.struct(),
+    }, status=200)
+
+def user_operations(request, user_name=None):
+    try:
+        user = models.User.objects.get(user_name=user_name)
+    except models.User.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'message': 'User doesnt exists',
+        }, status=404)
+
+    if request.method == 'DELETE':
+        return user_op_delete(request, user)
+    else:
+        return user_op_get(request, user)

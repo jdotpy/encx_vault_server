@@ -8,9 +8,9 @@ urlpatterns = [
     url(r'^ping$', views.ping),
 
     # Users
-    url(r'^user$', user_views.user_get),
     url(r'^users/new$', user_views.user_new),
-    url(r'^user/init$', user_views.user_init),
+    url(r'^users/init$', user_views.user_init),
+    url(r'^user/(?P<user_name>[^/]{2})$', user_views.user_operations),
 
     # Audit
     url(r'^audit/log$', doc_views.audit_log),

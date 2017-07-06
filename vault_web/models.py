@@ -97,6 +97,8 @@ class User(models.Model):
             if isinstance(obj, Document):
                 sanction = obj.sanction_for(self)
                 return sanction and saction.can(action)
+            elif isinstance(obj, User):
+                return user.is_admin
 
         return False
 
