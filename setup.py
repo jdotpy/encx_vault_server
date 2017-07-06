@@ -3,8 +3,13 @@ from setuptools import setup, find_packages
 
 setup(
     name = 'vault_web',
-    packages=find_packages(),
-    version = '0.1.0',
+    version = '0.2.0',
+    packages=[
+        'vault_web',
+        'vault_web.migrations',
+        'vault_web.management',
+        'vault_web.management.commands',
+    ],
     install_requires=[
         'django',
     ],

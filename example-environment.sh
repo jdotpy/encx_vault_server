@@ -1,5 +1,0 @@
-export POSTGRES_PASSWORD="pg_pass"
-export POSTGRES_HOST="localhost"
-export POSTGRES_DB="postgres"
-export DJANGO_SECRET_KEY="0000000000000000000000"
-
