@@ -89,7 +89,7 @@ class User(models.Model):
             elif obj == Document:
                 if user.is_admin:
                     return True
-                if getattr(settings, 'CRYPT_EVERYONE_CREATES', False):
+                if getattr(settings, 'VAULT_EVERYONE_CREATES', False):
                     return True
             return False
 
@@ -170,46 +170,12 @@ class Document(models.Model):
         }
 
     def audit(self, user, action):
-        if getattr(settings, 'CRYPT_ENABLE_AUDIT', False):
+        if getattr(settings, 'VAULT_ENABLE_AUDIT', False):
             Audit.objects.create(
                 user_name=user.user_name,
                 document_path=self.path,
                 document_version=self.id,
                 action=action,
-            )
-
-class SanctionManager(models.Manager):
-    def create_for_doc(self, doc, key, previous=None):
-        """ 
-            This creates the sanctions for a newly created document version.
-            Automatically adds the owner, any admins. If a doc (presumably the
-            previous) is passed in the user roles are copied from it.
-        """
-        # Start with just the creator of the doc
-        user_roles = {doc.creator: Sanction.ROLE_OWNER}
-
-        # Add any admins
-        if getattr(settings, 'CRYPT_ADMINS_DECRYPT', False):
-            admins = User.objects.filter(is_admin=True, initialized=True)
-            for admin in admins:
-                user_roles[admin] = Sanction.ROLE_OWNER
-
-        # Copy from previous
-        if previous:
-            for s in previous.sanctions.all():
-                user_roles[s.user] = s.role
-        
-        # Create the sanctions from user_roles
-        for user, role in user_roles.items():
-            print('Giving the user {} the role {} on {}'.format(
-                user.user_name, role, doc.path
-            ))
-            encrypted_key = user.encrypt(key, encode=True)
-            Sanction.objects.create(
-                document=doc,
-                user=user,
-                role=role,
-                encrypted_key=encrypted_key,
             )
 
 class Sanction(models.Model):
@@ -233,8 +199,6 @@ class Sanction(models.Model):
     document = models.ForeignKey(Document, related_name='sanctions')
     encrypted_key = models.TextField()
     metadata = JSONField()
-
-    objects = SanctionManager()
 
     class Meta:
         unique_together = ('user', 'document')
